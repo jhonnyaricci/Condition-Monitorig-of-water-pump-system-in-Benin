@@ -1,0 +1,273 @@
+#include <DHT.h> // se incluyen las librerías necesarias
+#include <Wire.h>
+
+#define MMA8452_ADDRESS 0x1D // se configuran los valores fijos
+#define DHTPIN 2
+#define DHTTYPE DHT11
+#define OUT_X_MSB 0x01
+#define XYZ_DATA_CFG  0x0E
+#define WHO_AM_I   0x0D
+#define CTRL_REG1  0x2A
+#define GSCALE 2 
+
+
+DHT dht(DHTPIN, DHTTYPE); // se configura el sensor de T y humedad
+int sensor_pin = A0;
+int output_value ;
+int agua =0;
+
+  float tablaH[30];
+  float tablaT[30];
+  float tablaF[30];
+  float tablaX[30];
+  float tablaY[30];
+  float tablaZ[30];
+  int n=0;
+  float sumaH=0;
+  float sumaT=0;
+  float defH=0;
+  float defT=0;
+  float defX=0;
+  float defY=0;
+  float defZ=0;
+
+void setup() { //función principal
+
+  Serial.begin(9600); //inicialización del UART
+  dht.begin(); // inicialización del DHT
+  Wire.begin(); inicialización del I2C
+  initMMA8452(); // inicialización del acelerómetro
+}
+
+void loop() { //bucle de lecturas (se separa la lectura de cada sensor)
+  
+/////////TEMPERATURA Y HUMEDAD////////////
+
+  int h = dht.readHumidity(); //guardar lecturas del sensor en variables
+  float t = dht.readTemperature();
+  float f = dht.readTemperature(true);
+  if (isnan(h) || isnan(t) || isnan(f)) { // si las variables no reciben valor
+    Serial.println("Error obteniendo los datos del sensor DHT11");
+    return;
+  }
+
+  /*
+  Serial.print("Humedad: "); // código de prueba individual para test
+  Serial.print(h);
+  Serial.print(" % ");
+  Serial.print(" \t");
+  Serial.print("Temperatura: ");
+  Serial.print(t);
+  Serial.print(" *C ");
+  Serial.print(" \t");
+*/
+  
+  ///////////////////SENSOR AGUA/////////////////////////////////
+   output_value= analogRead(sensor_pin); // lectura analogica del sensor
+   output_value = map(output_value,550,0,0,100);
+   if (output_value==100) // si el valor es el máximo (100) es que hay agua
+   {
+   agua=1;
+   }else{
+   agua=0; // si es menor que 100, no hay agua
+   }
+
+   /*
+   Serial.print("Agua:  "); // código de prueba individual para test
+   Serial.print(agua);
+   Serial.print(" \t");
+   */
+
+
+
+//////////VIBRACION////////////
+  /*
+  Serial.print(" Vibración (x, y, z):  "); // código de prueba individual para test
+  */
+  int accelCount[3];  
+  readAccelData(accelCount);  // lectura del acelerometro
+  float accelG[3]; 
+  for (int i = 0 ; i < 3 ; i++)
+  {
+    accelG[i] = (float) accelCount[i] / ((1<<12)/(2*GSCALE)); 
+  }
+
+  for (int i = 0 ; i < 3 ; i++)
+  {
+    /*
+    Serial.print(accelG[i], 4);  // código de prueba individual para test
+    Serial.print(" ");  
+    */
+  }
+  /*
+  Serial.println(); // código de prueba individual para test
+  */
+  delay(250); // <- el tiempo que queramos entre 30 por 1000
+
+//////////GUARDAMOS EL DATO//////////////////////////
+
+tablaH[n]=h;
+tablaT[n]=t;
+tablaX[n]=abs(accelG[0]); //valor absoluto
+tablaY[n]=abs(accelG[1]);
+tablaZ[n]=abs(accelG[2]);
+n++;
+
+
+//////////MEDIAS H/T Y MAXIMO ACELERACIONES///////////
+
+
+if(n==29)  // definimos cuantos valores lee antes de hacer la media
+{
+  n=0;
+  sumaH=0;
+  sumaT=0;
+
+
+for(int i=0; i<=29 ; i++) // vamos guardando los valores de T y H en una tabla
+{
+  sumaH=sumaH+tablaH[i];
+  sumaT=sumaT+tablaT[i];
+}
+defH=sumaH/29; // sacamos la media de humedad
+defT=sumaT/29; // sacamos la media de temperatura
+
+for(int i=0; i<=29 ; i++) // vamos guardando los valores de aceleración x, y, z  en una tabla
+
+{
+ 
+  if(i==0) 
+  {
+  defX=tablaX[i];
+  defY=tablaY[i];
+  defZ=tablaZ[i];
+  }
+
+  if(defX<tablaX[i+1]&&i!=0&&i!=29) //si el valor es mayor al anterior lo guardamos
+  {
+     defX=tablaX[i+1];
+  }
+    if(defY<tablaY[i+1]&&i!=0&&i!=29)
+  {
+     defY=tablaY[i+1];
+  }
+    if(defZ<tablaZ[i+1]&&i!=0&&i!=29)
+  {
+     defZ=tablaZ[i+1];
+  }
+}
+/////////MOSTRAR DATOS DEFINITIVOS/////////////
+
+  Serial.print("Humedad: ");
+  Serial.print(defH);
+  Serial.print(" % ");
+  Serial.print(" \t");
+  Serial.print("Temperatura: ");
+  Serial.print(defT);
+  Serial.print(" *C ");
+  Serial.print(" \t");
+  Serial.print("Agua:  ");
+  Serial.print(agua);
+  Serial.print(" \t");
+  Serial.print("X, Y, Z: ");
+  Serial.print(defX);
+  Serial.print(" \t");
+  Serial.print(defY);
+  Serial.print(" \t");
+  Serial.print(defZ);
+  Serial.print(" \t");
+  Serial.print(" \n");
+  
+}
+  }
+
+/////////////////// FUNCIONES INTERNAS DE LIBRERIAS /////////////////////////
+
+void readAccelData(int *destination)
+{
+  byte rawData[6];  
+
+  readRegisters(OUT_X_MSB, 6, rawData);  
+
+
+  for(int i = 0; i < 3 ; i++)
+  {
+    int gCount = (rawData[i*2] << 8) | rawData[(i*2)+1];  
+    gCount >>= 4; 
+    {  
+      gCount -= 0x1000;
+    }
+    destination[i] = gCount; 
+  }
+}
+
+void initMMA8452()
+{
+  byte c = readRegister(WHO_AM_I);  // Read WHO_AM_I register
+  if (c == 0x2A) // WHO_AM_I should always be 0x2A
+  {  
+    Serial.println("MMA8452Q is online...");
+  }
+  else
+  {
+    Serial.print("Could not connect to MMA8452Q: 0x");
+    Serial.println(c, HEX);
+    while(1) ; 
+  }
+
+  MMA8452Standby();  
+  byte fsr = GSCALE;
+  if(fsr > 8) fsr = 8;
+  fsr >>= 2;
+  writeRegister(XYZ_DATA_CFG, fsr);
+  MMA8452Active(); 
+}
+
+
+void MMA8452Standby()
+{
+  byte c = readRegister(CTRL_REG1);
+  writeRegister(CTRL_REG1, c & ~(0x01)); 
+}
+
+void MMA8452Active()
+{
+  byte c = readRegister(CTRL_REG1);
+  writeRegister(CTRL_REG1, c | 0x01);
+}
+
+void readRegisters(byte addressToRead, int bytesToRead, byte * dest)
+{
+  Wire.beginTransmission(MMA8452_ADDRESS);
+  Wire.write(addressToRead);
+  Wire.endTransmission(false); 
+
+  Wire.requestFrom(MMA8452_ADDRESS, bytesToRead);
+
+  while(Wire.available() < bytesToRead); 
+
+  for(int x = 0 ; x < bytesToRead ; x++)
+    dest[x] = Wire.read();    
+}
+
+
+byte readRegister(byte addressToRead)
+{
+  Wire.beginTransmission(MMA8452_ADDRESS);
+  Wire.write(addressToRead);
+  Wire.endTransmission(false); 
+
+  Wire.requestFrom(MMA8452_ADDRESS, 1); 
+
+  while(!Wire.available()) ; 
+  return Wire.read(); 
+}
+
+void writeRegister(byte addressToWrite, byte dataToWrite)
+{
+  Wire.beginTransmission(MMA8452_ADDRESS);
+  Wire.write(addressToWrite);
+  Wire.write(dataToWrite);
+  Wire.endTransmission(); //Stop transmitting
+}
+
