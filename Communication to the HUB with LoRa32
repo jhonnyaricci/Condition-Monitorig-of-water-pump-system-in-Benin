@@ -1,0 +1,80 @@
+#include <Arduino.h>
+#include "font.h"
+#include <Wire.h>
+#include "SSD1306.h"
+#include <SPI.h>
+#include <LoRa.h> //se incluyen las librerías necesarias 
+
+#define SX1278_SCK  5
+#define SX1278_MISO 19
+#define SX1278_MOSI 27
+#define SX1278_CS   18
+#define SX1278_RST  14
+#define SX1278_IRQ  26 
+#define BAND 868500000.00
+#define spreadingFactor 9
+#define SignalBandwidth 31.25E3
+#define preambleLength 8
+#define codingRateDenominator 8 // se definen los valores de configuración de distintas librerias
+
+const byte numChars = 80;
+char receivedChars[numChars]; // an array to store the received data
+
+boolean newData = false;
+
+void setup() // programa principal
+{
+  //inicialización del UART  
+  Serial.begin(9600); 
+  while (!Serial);
+  // inicialización del LoRa
+  SPI.begin(SX1278_SCK, SX1278_MISO, SX1278_MOSI, SX1278_CS); 
+  LoRa.setPins(SX1278_CS, SX1278_RST, SX1278_IRQ);
+  if(!LoRa.begin(BAND)) {
+    Serial.println("Starting LoRa failed!");
+    while(1);
+  }
+
+  LoRa.setSpreadingFactor(spreadingFactor);
+  LoRa.setSignalBandwidth(SignalBandwidth);
+  LoRa.setCodingRate4(codingRateDenominator);
+  LoRa.setPreambleLength(preambleLength);
+  delay(1000);
+}
+
+void loop() { //bucle de programa
+ recvWithEndMarker();
+ showNewData();
+}
+
+void recvWithEndMarker() { //integración del marcador final
+ static byte ndx = 0;
+ char endMarker = '\n';
+ char rc;
+   if (Serial.available() > 0) { 
+           while (Serial.available() > 0 && newData == false) {
+ rc = Serial.read();
+ if (rc != endMarker) {
+ receivedChars[ndx] = rc;
+ ndx++;
+ if (ndx >= numChars) {
+ ndx = numChars - 1;
+ }
+ }
+ else {
+ receivedChars[ndx] = '\0'; // terminar el string
+ ndx = 0;
+ newData = true;
+ }
+ }
+}
+
+void showNewData() { // si entran nuevos datos
+ if (newData == true) { 
+  Serial.print(receivedChars);
+  LoRa.beginPacket();
+  LoRa.print(receivedChars);
+  LoRa.endPacket();
+ newData = false;
+ }
+}
